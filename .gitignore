@@ -4,3 +4,7 @@
 /radioout
 /secret.txt
 /secretdata.wav
+src/__pycache__/decode.cpython-313.pyc
+src/__pycache__/encode.cpython-313.pyc
+src/__pycache__/encryption.cpython-313.pyc
+src/__pycache__/gui.cpython-313.pyc
