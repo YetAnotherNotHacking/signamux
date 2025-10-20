@@ -1,0 +1,6 @@
+matplotlib
+numpy
+pydub
+cryptography
+pillow
+tk
