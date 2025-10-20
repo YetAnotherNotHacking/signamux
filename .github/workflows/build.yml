@@ -1,0 +1,182 @@
+name: Build Executables
+on:
+  push:
+    branches: [ main, master ]
+    tags:
+      - 'v*'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller pillow
+      
+      - name: Convert logo to ICO
+        run: |
+          python -c "from PIL import Image; Image.open('assets/logo.png').save('logo.ico', format='ICO', sizes=[(256,256)])"
+      
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller --onefile --windowed --icon=logo.ico --name SignaMux main.py
+      
+      - name: Install NSIS
+        run: |
+          choco install nsis -y
+      
+      - name: Create NSIS Installer Script
+        run: |
+          @"
+          !include "MUI2.nsh"
+          
+          Name "SignaMux"
+          OutFile "SignaMux-Installer.exe"
+          InstallDir "`$PROGRAMFILES64\SignaMux"
+          RequestExecutionLevel admin
+          
+          !define MUI_ICON "logo.ico"
+          
+          !insertmacro MUI_PAGE_WELCOME
+          !insertmacro MUI_PAGE_DIRECTORY
+          !insertmacro MUI_PAGE_INSTFILES
+          !insertmacro MUI_PAGE_FINISH
+          
+          !insertmacro MUI_UNPAGE_CONFIRM
+          !insertmacro MUI_UNPAGE_INSTFILES
+          
+          !insertmacro MUI_LANGUAGE "English"
+          
+          Section "Install"
+            SetOutPath "`$INSTDIR"
+            File "dist\SignaMux.exe"
+            
+            CreateDirectory "`$SMPROGRAMS\SignaMux"
+            CreateShortcut "`$SMPROGRAMS\SignaMux\SignaMux.lnk" "`$INSTDIR\SignaMux.exe"
+            CreateShortcut "`$DESKTOP\SignaMux.lnk" "`$INSTDIR\SignaMux.exe"
+            
+            WriteUninstaller "`$INSTDIR\Uninstall.exe"
+            
+            WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\SignaMux" "DisplayName" "SignaMux"
+            WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\SignaMux" "UninstallString" "`$INSTDIR\Uninstall.exe"
+          SectionEnd
+          
+          Section "Uninstall"
+            Delete "`$INSTDIR\SignaMux.exe"
+            Delete "`$INSTDIR\Uninstall.exe"
+            Delete "`$SMPROGRAMS\SignaMux\SignaMux.lnk"
+            Delete "`$DESKTOP\SignaMux.lnk"
+            RMDir "`$SMPROGRAMS\SignaMux"
+            RMDir "`$INSTDIR"
+            
+            DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\SignaMux"
+          SectionEnd
+          "@ | Out-File -FilePath installer.nsi -Encoding ASCII
+      
+      - name: Build NSIS Installer
+        run: |
+          & "C:\Program Files (x86)\NSIS\makensis.exe" installer.nsi
+      
+      - name: Create Portable ZIP
+        run: |
+          mkdir SignaMux-Portable
+          Copy-Item "dist\SignaMux.exe" -Destination "SignaMux-Portable\"
+          Compress-Archive -Path "SignaMux-Portable" -DestinationPath "SignaMux-Portable-Windows.zip"
+      
+      - name: Upload Windows Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: |
+            SignaMux-Installer.exe
+            SignaMux-Portable-Windows.zip
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Convert logo to ICNS
+        run: |
+          pip install pillow
+          mkdir SignaMux.iconset
+          sips -z 16 16     assets/logo.png --out SignaMux.iconset/icon_16x16.png
+          sips -z 32 32     assets/logo.png --out SignaMux.iconset/icon_16x16@2x.png
+          sips -z 32 32     assets/logo.png --out SignaMux.iconset/icon_32x32.png
+          sips -z 64 64     assets/logo.png --out SignaMux.iconset/icon_32x32@2x.png
+          sips -z 128 128   assets/logo.png --out SignaMux.iconset/icon_128x128.png
+          sips -z 256 256   assets/logo.png --out SignaMux.iconset/icon_128x128@2x.png
+          sips -z 256 256   assets/logo.png --out SignaMux.iconset/icon_256x256.png
+          sips -z 512 512   assets/logo.png --out SignaMux.iconset/icon_256x256@2x.png
+          sips -z 512 512   assets/logo.png --out SignaMux.iconset/icon_512x512.png
+          cp assets/logo.png SignaMux.iconset/icon_512x512@2x.png
+          iconutil -c icns SignaMux.iconset
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+      
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller --onefile --windowed --icon=SignaMux.icns --name SignaMux main.py
+      
+      - name: Create DMG
+        run: |
+          mkdir -p dmg_contents
+          cp -r dist/SignaMux.app dmg_contents/
+          hdiutil create -volname "SignaMux" -srcfolder dmg_contents -ov -format UDZO SignaMux.dmg
+      
+      - name: Upload macOS Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-build
+          path: |
+            SignaMux.dmg
+            dist/SignaMux.app
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+      
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller --onefile --name SignaMux main.py
+      
+      - name: Create tar.gz
+        run: |
+          mkdir -p SignaMux-linux
+          cp dist/SignaMux SignaMux-linux/
+          tar -czf SignaMux-linux.tar.gz SignaMux-linux/
+      
+      - name: Upload Linux Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-build
+          path: |
+            SignaMux-linux.tar.gz
+            dist/SignaMux
